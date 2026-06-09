@@ -5,32 +5,31 @@ import os
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "홀덤 서빙 정산봇입니다.\n\n"
-        "/설명서 로 사용법을 확인하세요."
+        "👋 홀덤 서빙 정산봇입니다.\n\n"
+        "사용법은 /help 를 입력하세요."
     )
 
 
-async def guide(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "📖 홀덤 서빙 정산봇 사용법\n\n"
-        "/시급 금액\n"
-        "/근무시작\n"
-        "/근무종료\n"
-        "/팁 금액\n"
-        "/지출 금액 내용\n"
-        "/현재\n"
-        "/통계\n"
-        "/월통계"
+        "📖 홀덤 서빙 정산봇\n\n"
+        "/start - 시작\n"
+        "/help - 사용법 보기"
     )
 
 
 def main():
     token = os.getenv("BOT_TOKEN")
 
+    if not token:
+        raise ValueError("BOT_TOKEN 환경변수가 설정되지 않았습니다.")
+
     app = Application.builder().token(token).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("설명서", guide))
+    app.add_handler(CommandHandler("help", help_command))
+
+    print("봇 시작됨")
 
     app.run_polling()
 
