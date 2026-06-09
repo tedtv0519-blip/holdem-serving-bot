@@ -36,8 +36,12 @@ def get_user(data, user_id):
             "current_shift": None,
             "tips": [],
             "expenses": [],
-            "shifts": []
+            "shifts": [],
+            "last_actions": []
         }
+
+    if "last_actions" not in data[user_id]:
+        data[user_id]["last_actions"] = []
 
     return data[user_id]
 
@@ -52,15 +56,45 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def show_help(update: Update):
     await update.message.reply_text(
         "📖 홀덤 서빙 정산봇 사용법\n\n"
+
         "시급 12000\n"
+        "→ 시급 설정\n\n"
+
         "근무시작\n"
+        "→ 근무 시작\n\n"
+
         "근무종료\n"
+        "→ 근무 종료 및 정산\n\n"
+
         "팁 5000\n"
+        "→ 팁 입력\n\n"
+
         "지출 3000 물티슈\n"
+        "→ 가게 물품 구매 기록\n\n"
+
         "현재\n"
+        "→ 현재 정산 현황\n\n"
+
         "통계\n"
+        "→ 현재 근무 중 팁/지출 기록\n\n"
+
         "월통계\n"
-        "설명서"
+        "→ 이번 달 누적 통계\n\n"
+
+        "취소\n"
+        "→ 최근 입력한 팁 또는 지출 삭제\n\n"
+
+        "초기화\n"
+        "→ 현재 근무 데이터 초기화\n\n"
+
+        "정산 방식\n\n"
+
+        "급여 = 근무시간 × 시급\n"
+        "총 수입 = 급여 + 팁\n"
+        "최종 받을 금액 = 급여 + 팁 + 지출\n\n"
+
+        "※ 지출은 차감이 아닌\n"
+        "가게에서 돌려받을 금액입니다."
     )
 
 
@@ -101,11 +135,16 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         if text.startswith("팁 "):
+
             amount = int(text.split(" ", 1)[1])
 
             user["tips"].append({
                 "amount": amount,
                 "time": datetime.now().isoformat()
+            })
+
+            user["last_actions"].append({
+                "type": "tip"
             })
 
             save_data(data)
@@ -132,6 +171,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "time": datetime.now().isoformat()
             })
 
+            user["last_actions"].append({
+                "type": "expense"
+            })
+
             save_data(data)
 
             await update.message.reply_text(
@@ -139,7 +182,57 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        if text == "현재":
+        if text == "취소":
+
+            if not user["last_actions"]:
+                await update.message.reply_text(
+                    "취소할 기록이 없습니다."
+                )
+                return
+
+            last = user["last_actions"].pop()
+
+            if last["type"] == "tip":
+
+                if user["tips"]:
+                    deleted = user["tips"].pop()
+
+                    save_data(data)
+
+                    await update.message.reply_text(
+                        f"삭제 완료\n\n"
+                        f"팁 {deleted['amount']:,}원"
+                    )
+
+            elif last["type"] == "expense":
+
+                if user["expenses"]:
+                    deleted = user["expenses"].pop()
+
+                    save_data(data)
+
+                    await update.message.reply_text(
+                        f"삭제 완료\n\n"
+                        f"지출 {deleted['amount']:,}원"
+                    )
+
+            return
+
+        if text == "초기화":
+
+            user["current_shift"] = None
+            user["tips"] = []
+            user["expenses"] = []
+            user["last_actions"] = []
+
+            save_data(data)
+
+            await update.message.reply_text(
+                "현재 근무 데이터 초기화 완료"
+            )
+
+            return
+                    if text == "현재":
 
             if not user["current_shift"]:
                 await update.message.reply_text(
@@ -179,6 +272,69 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"지출 : {expenses_total:,}원\n\n"
                 f"최종 받을 금액 : {final_amount:,}원"
             )
+            return
+
+        if text == "통계":
+
+            result = "📊 현재 근무 통계\n\n"
+
+            tip_total = 0
+
+            result += "팁 기록\n\n"
+
+            if user["tips"]:
+                for tip in user["tips"]:
+                    time_str = datetime.fromisoformat(
+                        tip["time"]
+                    ).strftime("%H:%M:%S")
+
+                    result += (
+                        f"{time_str} - "
+                        f"{tip['amount']:,}원\n"
+                    )
+
+                    tip_total += tip["amount"]
+
+            else:
+                result += "기록 없음\n"
+
+            result += (
+                f"\n총 팁 : {tip_total:,}원\n\n"
+                "━━━━━━━━━━\n\n"
+                "지출 기록\n\n"
+            )
+
+            expense_total = 0
+
+            if user["expenses"]:
+                for expense in user["expenses"]:
+
+                    time_str = datetime.fromisoformat(
+                        expense["time"]
+                    ).strftime("%H:%M:%S")
+
+                    result += (
+                        f"{time_str} - "
+                        f"{expense['amount']:,}원"
+                    )
+
+                    if expense["memo"]:
+                        result += (
+                            f" ({expense['memo']})"
+                        )
+
+                    result += "\n"
+
+                    expense_total += expense["amount"]
+
+            else:
+                result += "기록 없음\n"
+
+            result += (
+                f"\n총 지출 : {expense_total:,}원"
+            )
+
+            await update.message.reply_text(result)
             return
 
         if text == "근무종료":
@@ -227,6 +383,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             user["current_shift"] = None
             user["tips"] = []
             user["expenses"] = []
+            user["last_actions"] = []
 
             save_data(data)
 
@@ -240,32 +397,6 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"총 수입 : {wage_amount + tips_total:,}원\n"
                 f"최종 받을 금액 : {final_amount:,}원"
             )
-            return
-
-        if text == "통계":
-
-            if not user["shifts"]:
-                await update.message.reply_text(
-                    "기록이 없습니다."
-                )
-                return
-
-            result = "최근 근무 기록\n\n"
-
-            for shift in user["shifts"][-20:]:
-
-                day = datetime.fromisoformat(
-                    shift["end"]
-                ).strftime("%m/%d")
-
-                result += (
-                    f"{day}\n"
-                    f"급여 {shift['wage']:,}원\n"
-                    f"팁 {shift['tips']:,}원\n"
-                    f"지출 {shift['expenses']:,}원\n\n"
-                )
-
-            await update.message.reply_text(result)
             return
 
         if text == "월통계":
