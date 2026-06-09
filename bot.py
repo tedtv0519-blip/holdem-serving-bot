@@ -1,1 +1,260 @@
+import json
+import os
+from datetime import datetime
 
+from telegram import Update
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    ContextTypes,
+    filters,
+)
+
+DATA_FILE = "data.json"
+
+
+def load_data():
+    try:
+        with open(DATA_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except:
+        return {}
+
+
+def save_data(data):
+    with open(DATA_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
+
+
+def get_user(data, user_id):
+    user_id = str(user_id)
+
+    if user_id not in data:
+        data[user_id] = {
+            "hourly_wage": 0,
+            "current_shift": None,
+            "tips": [],
+            "expenses": [],
+            "shifts": [],
+            "last_actions": []
+        }
+
+    return data[user_id]
+
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "👋 홀덤 서빙 정산봇\n\n설명서 를 입력하면 사용법을 볼 수 있습니다."
+    )
+
+
+async def show_help(update: Update):
+    await update.message.reply_text(
+        "📖 홀덤 서빙 정산봇\n\n"
+        "시급 12000\n근무시작\n근무종료\n팁 5000\n지출 3000 물티슈\n"
+        "현재\n통계\n월통계\n취소\n초기화\n설명서"
+    )
+
+
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+
+    data = load_data()
+    user = get_user(data, update.effective_user.id)
+
+    try:
+        if text == "설명서":
+            await show_help(update)
+            return
+
+        if text.startswith("시급 "):
+            amount = int(text.split()[1])
+            user["hourly_wage"] = amount
+            save_data(data)
+            await update.message.reply_text(f"시급 설정 완료 : {amount:,}원")
+            return
+
+        if text == "근무시작":
+            if user["current_shift"]:
+                await update.message.reply_text("이미 근무 중입니다.")
+                return
+
+            user["current_shift"] = datetime.now().isoformat()
+            save_data(data)
+            await update.message.reply_text("근무 시작 완료")
+            return
+
+        if text.startswith("팁 "):
+            amount = int(text.split()[1])
+            user["tips"].append({
+                "amount": amount,
+                "time": datetime.now().isoformat()
+            })
+            user["last_actions"].append("tip")
+            save_data(data)
+            await update.message.reply_text(f"팁 {amount:,}원 등록 완료")
+            return
+
+        if text.startswith("지출 "):
+            parts = text.split()
+            amount = int(parts[1])
+            memo = " ".join(parts[2:]) if len(parts) > 2 else ""
+
+            user["expenses"].append({
+                "amount": amount,
+                "memo": memo,
+                "time": datetime.now().isoformat()
+            })
+
+            user["last_actions"].append("expense")
+            save_data(data)
+            await update.message.reply_text(f"지출 {amount:,}원 등록 완료")
+            return
+
+        if text == "취소":
+            if not user["last_actions"]:
+                await update.message.reply_text("취소할 기록이 없습니다.")
+                return
+
+            last = user["last_actions"].pop()
+
+            if last == "tip" and user["tips"]:
+                deleted = user["tips"].pop()
+                save_data(data)
+                await update.message.reply_text(f"삭제 완료\n\n팁 {deleted['amount']:,}원")
+                return
+
+            if last == "expense" and user["expenses"]:
+                deleted = user["expenses"].pop()
+                save_data(data)
+                await update.message.reply_text(f"삭제 완료\n\n지출 {deleted['amount']:,}원")
+                return
+
+        if text == "초기화":
+            user["current_shift"] = None
+            user["tips"] = []
+            user["expenses"] = []
+            user["last_actions"] = []
+            save_data(data)
+            await update.message.reply_text("현재 근무 데이터 초기화 완료")
+            return
+
+        if text == "현재":
+            if not user["current_shift"]:
+                await update.message.reply_text("현재 근무 중이 아닙니다.")
+                return
+
+            start_time = datetime.fromisoformat(user["current_shift"])
+            worked = datetime.now() - start_time
+
+            wage = int(worked.total_seconds() / 3600 * user["hourly_wage"])
+            tip_total = sum(x["amount"] for x in user["tips"])
+            expense_total = sum(x["amount"] for x in user["expenses"])
+
+            await update.message.reply_text(
+                f"근무시간 : {str(worked).split('.')[0]}\n\n"
+                f"급여 : {wage:,}원\n"
+                f"팁 : {tip_total:,}원\n"
+                f"지출 : {expense_total:,}원\n\n"
+                f"최종 받을 금액 : {wage + tip_total + expense_total:,}원"
+            )
+            return
+
+        if text == "통계":
+            result = "📊 현재 근무 통계\n\n팁 기록\n"
+
+            if user["tips"]:
+                for tip in user["tips"]:
+                    t = datetime.fromisoformat(tip["time"]).strftime("%H:%M:%S")
+                    result += f"{t} - {tip['amount']:,}원\n"
+            else:
+                result += "기록 없음\n"
+
+            result += "\n지출 기록\n"
+
+            if user["expenses"]:
+                for expense in user["expenses"]:
+                    t = datetime.fromisoformat(expense["time"]).strftime("%H:%M:%S")
+                    result += f"{t} - {expense['amount']:,}원"
+                    if expense["memo"]:
+                        result += f" ({expense['memo']})"
+                    result += "\n"
+            else:
+                result += "기록 없음\n"
+
+            await update.message.reply_text(result)
+            return
+
+        if text == "근무종료":
+            if not user["current_shift"]:
+                await update.message.reply_text("현재 근무 중이 아닙니다.")
+                return
+
+            start_time = datetime.fromisoformat(user["current_shift"])
+            end_time = datetime.now()
+            worked = end_time - start_time
+
+            wage = int(worked.total_seconds() / 3600 * user["hourly_wage"])
+            tip_total = sum(x["amount"] for x in user["tips"])
+            expense_total = sum(x["amount"] for x in user["expenses"])
+
+            user["shifts"].append({
+                "date": end_time.isoformat(),
+                "wage": wage,
+                "tips": tip_total,
+                "expenses": expense_total
+            })
+
+            user["current_shift"] = None
+            user["tips"] = []
+            user["expenses"] = []
+            user["last_actions"] = []
+
+            save_data(data)
+
+            await update.message.reply_text(
+                "근무 종료\n\n"
+                f"급여 : {wage:,}원\n"
+                f"팁 : {tip_total:,}원\n"
+                f"지출 : {expense_total:,}원\n\n"
+                f"최종 받을 금액 : {wage + tip_total + expense_total:,}원"
+            )
+            return
+
+        if text == "월통계":
+            now = datetime.now()
+            wage_total = 0
+            tip_total = 0
+            expense_total = 0
+
+            for shift in user["shifts"]:
+                d = datetime.fromisoformat(shift["date"])
+                if d.year == now.year and d.month == now.month:
+                    wage_total += shift["wage"]
+                    tip_total += shift["tips"]
+                    expense_total += shift["expenses"]
+
+            await update.message.reply_text(
+                f"{now.year}년 {now.month}월\n\n"
+                f"급여 : {wage_total:,}원\n"
+                f"팁 : {tip_total:,}원\n"
+                f"지출 : {expense_total:,}원\n\n"
+                f"최종 받을 금액 : {wage_total + tip_total + expense_total:,}원"
+            )
+            return
+
+    except Exception as e:
+        await update.message.reply_text(f"오류 발생: {e}")
+
+
+def main():
+    token = os.getenv("BOT_TOKEN")
+    app = Application.builder().token(token).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    app.run_polling()
+
+
+if __name__ == "__main__":
+    main()
