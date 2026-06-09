@@ -40,22 +40,19 @@ def get_user(data, user_id):
             "last_actions": []
         }
 
-    if "last_actions" not in data[user_id]:
-        data[user_id]["last_actions"] = []
-
     return data[user_id]
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "👋 홀덤 서빙 정산봇\n\n"
-        "설명서 를 입력하면 사용법을 확인할 수 있습니다."
+        "설명서 를 입력하면 사용법을 볼 수 있습니다."
     )
 
 
 async def show_help(update: Update):
     await update.message.reply_text(
-        "📖 홀덤 서빙 정산봇 사용법\n\n"
+        "📖 홀덤 서빙 정산봇\n\n"
         "시급 12000\n"
         "근무시작\n"
         "근무종료\n"
@@ -66,16 +63,12 @@ async def show_help(update: Update):
         "월통계\n"
         "취소\n"
         "초기화\n"
-        "설명서\n\n"
-        "정산 방식\n"
-        "급여 = 근무시간 × 시급\n"
-        "총 수입 = 급여 + 팁\n"
-        "최종 받을 금액 = 급여 + 팁 + 지출\n\n"
-        "※ 지출은 가게에서 돌려받을 금액입니다."
+        "설명서"
     )
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
     text = update.message.text.strip()
 
     data = load_data()
@@ -88,47 +81,54 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         if text.startswith("시급 "):
-            amount = int(text.split(" ", 1)[1])
+
+            amount = int(text.split()[1])
 
             user["hourly_wage"] = amount
+
             save_data(data)
 
             await update.message.reply_text(
-                f"시급이 {amount:,}원으로 설정되었습니다."
+                f"시급 설정 완료 : {amount:,}원"
             )
+
             return
 
         if text == "근무시작":
 
             if user["current_shift"]:
-                await update.message.reply_text("이미 근무 중입니다.")
+                await update.message.reply_text(
+                    "이미 근무 중입니다."
+                )
                 return
 
             user["current_shift"] = datetime.now().isoformat()
 
             save_data(data)
 
-            await update.message.reply_text("근무 시작 완료 ✅")
+            await update.message.reply_text(
+                "근무 시작 완료"
+            )
+
             return
 
         if text.startswith("팁 "):
 
-            amount = int(text.split(" ", 1)[1])
+            amount = int(text.split()[1])
 
             user["tips"].append({
                 "amount": amount,
                 "time": datetime.now().isoformat()
             })
 
-            user["last_actions"].append({
-                "type": "tip"
-            })
+            user["last_actions"].append("tip")
 
             save_data(data)
 
             await update.message.reply_text(
                 f"팁 {amount:,}원 등록 완료"
             )
+
             return
 
         if text.startswith("지출 "):
@@ -139,7 +139,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             memo = ""
 
-            if len(parts) >= 3:
+            if len(parts) > 2:
                 memo = " ".join(parts[2:])
 
             user["expenses"].append({
@@ -148,18 +148,16 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "time": datetime.now().isoformat()
             })
 
-            user["last_actions"].append({
-                "type": "expense"
-            })
+            user["last_actions"].append("expense")
 
             save_data(data)
 
             await update.message.reply_text(
                 f"지출 {amount:,}원 등록 완료"
             )
-            return
 
-        if text == "취소":
+            return
+                    if text == "취소":
 
             if not user["last_actions"]:
                 await update.message.reply_text(
@@ -169,29 +167,29 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             last = user["last_actions"].pop()
 
-            if last["type"] == "tip":
+            if last == "tip" and user["tips"]:
 
-                if user["tips"]:
-                    deleted = user["tips"].pop()
+                deleted = user["tips"].pop()
 
-                    save_data(data)
+                save_data(data)
 
-                    await update.message.reply_text(
-                        f"삭제 완료\n\n팁 {deleted['amount']:,}원"
-                    )
+                await update.message.reply_text(
+                    f"삭제 완료\n\n팁 {deleted['amount']:,}원"
+                )
 
-            elif last["type"] == "expense":
+                return
 
-                if user["expenses"]:
-                    deleted = user["expenses"].pop()
+            if last == "expense" and user["expenses"]:
 
-                    save_data(data)
+                deleted = user["expenses"].pop()
 
-                    await update.message.reply_text(
-                        f"삭제 완료\n\n지출 {deleted['amount']:,}원"
-                    )
+                save_data(data)
 
-            return
+                await update.message.reply_text(
+                    f"삭제 완료\n\n지출 {deleted['amount']:,}원"
+                )
+
+                return
 
         if text == "초기화":
 
@@ -207,7 +205,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
 
             return
-                  if text == "현재":
+
+        if text == "현재":
 
             if not user["current_shift"]:
                 await update.message.reply_text(
@@ -221,79 +220,62 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             worked = datetime.now() - start_time
 
-            wage_amount = int(
+            wage = int(
                 worked.total_seconds() / 3600
                 * user["hourly_wage"]
             )
 
-            tips_total = sum(
+            tip_total = sum(
                 x["amount"] for x in user["tips"]
             )
 
-            expenses_total = sum(
+            expense_total = sum(
                 x["amount"] for x in user["expenses"]
             )
 
-            final_amount = (
-                wage_amount
-                + tips_total
-                + expenses_total
+            await update.message.reply_text(
+                f"근무시간 : {str(worked).split('.')[0]}\n\n"
+                f"급여 : {wage:,}원\n"
+                f"팁 : {tip_total:,}원\n"
+                f"지출 : {expense_total:,}원\n\n"
+                f"최종 받을 금액 : {wage + tip_total + expense_total:,}원"
             )
 
-            await update.message.reply_text(
-                f"현재 근무시간 : {str(worked).split('.')[0]}\n\n"
-                f"예상 급여 : {wage_amount:,}원\n"
-                f"팁 : {tips_total:,}원\n"
-                f"지출 : {expenses_total:,}원\n\n"
-                f"최종 받을 금액 : {final_amount:,}원"
-            )
             return
 
         if text == "통계":
 
             result = "📊 현재 근무 통계\n\n"
 
-            tip_total = 0
-
-            result += "팁 기록\n\n"
+            result += "팁 기록\n"
 
             if user["tips"]:
 
                 for tip in user["tips"]:
 
-                    time_str = datetime.fromisoformat(
+                    t = datetime.fromisoformat(
                         tip["time"]
                     ).strftime("%H:%M:%S")
 
                     result += (
-                        f"{time_str} - "
-                        f"{tip['amount']:,}원\n"
+                        f"{t} - {tip['amount']:,}원\n"
                     )
-
-                    tip_total += tip["amount"]
 
             else:
                 result += "기록 없음\n"
 
-            result += (
-                f"\n총 팁 : {tip_total:,}원\n\n"
-                "━━━━━━━━━━\n\n"
-                "지출 기록\n\n"
-            )
-
-            expense_total = 0
+            result += "\n지출 기록\n"
 
             if user["expenses"]:
 
                 for expense in user["expenses"]:
 
-                    time_str = datetime.fromisoformat(
+                    t = datetime.fromisoformat(
                         expense["time"]
                     ).strftime("%H:%M:%S")
 
                     result += (
-                        f"{time_str} - "
-                        f"{expense['amount']:,}원"
+                        f"{t} - {expense['amount']:,}원"
                     )
 
                     if expense["memo"]:
@@ -303,16 +285,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
                     result += "\n"
 
-                    expense_total += expense["amount"]
-
             else:
                 result += "기록 없음\n"
 
-            result += (
-                f"\n총 지출 : {expense_total:,}원"
-            )
-
             await update.message.reply_text(result)
+
             return
 
         if text == "근무종료":
@@ -331,31 +308,24 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             worked = end_time - start_time
 
-            wage_amount = int(
+            wage = int(
                 worked.total_seconds() / 3600
                 * user["hourly_wage"]
             )
 
-            tips_total = sum(
+            tip_total = sum(
                 x["amount"] for x in user["tips"]
             )
 
-            expenses_total = sum(
+            expense_total = sum(
                 x["amount"] for x in user["expenses"]
             )
 
-            final_amount = (
-                wage_amount
-                + tips_total
-                + expenses_total
-            )
-
             user["shifts"].append({
-                "start": start_time.isoformat(),
-                "end": end_time.isoformat(),
-                "wage": wage_amount,
-                "tips": tips_total,
-                "expenses": expenses_total
+                "date": end_time.isoformat(),
+                "wage": wage,
+                "tips": tip_total,
+                "expenses": expense_total
             })
 
             user["current_shift"] = None
@@ -367,14 +337,12 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             await update.message.reply_text(
                 "근무 종료\n\n"
-                f"근무시간 : {str(worked).split('.')[0]}\n"
-                f"시급 : {user['hourly_wage']:,}원\n\n"
-                f"급여 : {wage_amount:,}원\n"
-                f"팁 : {tips_total:,}원\n"
-                f"지출 : {expenses_total:,}원\n\n"
-                f"총 수입 : {wage_amount + tips_total:,}원\n"
-                f"최종 받을 금액 : {final_amount:,}원"
+                f"급여 : {wage:,}원\n"
+                f"팁 : {tip_total:,}원\n"
+                f"지출 : {expense_total:,}원\n\n"
+                f"최종 받을 금액 : {wage + tip_total + expense_total:,}원"
             )
+
             return
 
         if text == "월통계":
@@ -384,52 +352,47 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             wage_total = 0
             tip_total = 0
             expense_total = 0
-            work_days = 0
 
             for shift in user["shifts"]:
 
-                end = datetime.fromisoformat(
-                    shift["end"]
+                d = datetime.fromisoformat(
+                    shift["date"]
                 )
 
                 if (
-                    end.year == now.year
-                    and end.month == now.month
+                    d.year == now.year
+                    and d.month == now.month
                 ):
                     wage_total += shift["wage"]
                     tip_total += shift["tips"]
                     expense_total += shift["expenses"]
-                    work_days += 1
-
-            final_amount = (
-                wage_total
-                + tip_total
-                + expense_total
-            )
 
             await update.message.reply_text(
                 f"{now.year}년 {now.month}월\n\n"
-                f"근무일수 : {work_days}일\n\n"
                 f"급여 : {wage_total:,}원\n"
                 f"팁 : {tip_total:,}원\n"
                 f"지출 : {expense_total:,}원\n\n"
-                f"총 수입 : {wage_total + tip_total:,}원\n"
-                f"최종 받을 금액 : {final_amount:,}원"
+                f"최종 받을 금액 : {wage_total + tip_total + expense_total:,}원"
             )
+
             return
 
     except Exception as e:
+
         await update.message.reply_text(
             f"오류 발생: {e}"
         )
 
 
 def main():
+
     token = os.getenv("BOT_TOKEN")
 
     app = Application.builder().token(token).build()
 
-    app.add_handler(CommandHandler("start", start))
+    app.add_handler(
+        CommandHandler("start", start)
+    )
 
     app.add_handler(
         MessageHandler(
